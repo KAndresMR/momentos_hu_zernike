@@ -1,0 +1,19 @@
+# Entorno Python y Jupyter
+.ipynb_checkpoints/
+__pycache__/
+*.pyc
+
+# Mac OS
+.DS_Store
+
+# Android / Gradle
+momentos_hu_zernike/.gradle/
+momentos_hu_zernike/.idea/
+momentos_hu_zernike/build/
+momentos_hu_zernike/app/build/
+momentos_hu_zernike/local.properties
+momentos_hu_zernike/*.iml
+momentos_hu_zernike/.cxx/
+
+# OpenCV SDK (No se debe subir el SDK si estuviese aquí por su inmenso tamaño)
+OpenCV-android-sdk/
