@@ -3,6 +3,7 @@
 #include <vector>
 #include <sstream>
 #include <cmath>
+#include <iomanip>
 #include <opencv2/opencv.hpp>
 
 // Estructura para almacenar los datos de entrenamiento
@@ -58,7 +59,7 @@ Java_com_example_momentos_1hu_1zernike_MainActivity_initClassifier(
 // ====================================================================
 // FUNCIÓN 2: Clasificar la imagen dibujada
 // ====================================================================
-extern "C" JNIEXPORT jint JNICALL
+extern "C" JNIEXPORT jstring JNICALL
 Java_com_example_momentos_1hu_1zernike_MainActivity_classifyImage(
         JNIEnv* env,
         jobject /* this */,
@@ -95,7 +96,7 @@ Java_com_example_momentos_1hu_1zernike_MainActivity_classifyImage(
     cv::findContours(binary, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_NONE);
 
     if (contours.empty()) {
-        return -1; // No se dibujó nada
+        return env->NewStringUTF("-1"); // No se dibujó nada
     }
 
     // Tomar el contorno más grande
@@ -111,7 +112,7 @@ Java_com_example_momentos_1hu_1zernike_MainActivity_classifyImage(
     
     std::vector<cv::Point> contour = contours[largestContourIdx];
     if (contour.size() < 20) {
-        return -1; // Contorno demasiado pequeño
+        return env->NewStringUTF("-1"); // Contorno demasiado pequeño
     }
 
     // TÉCNICA DE MEJORA: Suavizado Poligonal (approxPolyDP)
@@ -127,7 +128,7 @@ Java_com_example_momentos_1hu_1zernike_MainActivity_classifyImage(
 
     // 4. Calcular el Shape Signature usando Coordenadas Complejas (FFT)
     cv::Moments M = cv::moments(smoothContour);
-    if (M.m00 == 0) return -1;
+    if (M.m00 == 0) return env->NewStringUTF("-1");
 
     double cx = M.m10 / M.m00;
     double cy = M.m01 / M.m00;
@@ -162,7 +163,7 @@ Java_com_example_momentos_1hu_1zernike_MainActivity_classifyImage(
     float f_minus1 = F_mag[smoothContour.size() - 1];
     float fundamental = std::max(f1, f_minus1);
 
-    if (fundamental < 1e-6) return -1;
+    if (fundamental < 1e-6) return env->NewStringUTF("-1");
 
     // Tomar 12 componentes normalizados
     std::vector<float> descriptor;
@@ -187,7 +188,7 @@ Java_com_example_momentos_1hu_1zernike_MainActivity_classifyImage(
     }
 
     // 5. Clasificar usando la Distancia Euclídea (1-NN)
-    if (trainingData.empty()) return -1;
+    if (trainingData.empty()) return env->NewStringUTF("-1");
 
     int bestLabel = -1;
     float minDistance = 1e9;
@@ -206,5 +207,17 @@ Java_com_example_momentos_1hu_1zernike_MainActivity_classifyImage(
         }
     }
 
-    return bestLabel;
+    std::ostringstream resultStr;
+    if (bestLabel == -1) {
+        resultStr << "-1";
+    } else {
+        resultStr << bestLabel << "|";
+        for (int i = 0; i < std::min(4, (int)descriptor.size()); i++) {
+            resultStr << std::fixed << std::setprecision(4) << descriptor[i];
+            if (i < 3) resultStr << ", ";
+        }
+        resultStr << ", ...";
+    }
+
+    return env->NewStringUTF(resultStr.str().c_str());
 }

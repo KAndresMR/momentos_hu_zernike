@@ -74,10 +74,19 @@ class MainActivity : AppCompatActivity() {
                 bitmap.copyPixelsToBuffer(byteBuffer)
                 val byteArray = byteBuffer.array()
 
-                // Llamamos a la función nativa en C++ y recibimos el número de clase
-                val predictedClass = classifyImage(byteArray, width, height)
+                // Llamamos a la función nativa en C++ y recibimos el resultado concatenado
+                val result = classifyImage(byteArray, width, height)
                 
-                tvResult.text = "Resultado: Clase $predictedClass"
+                if (result != "-1") {
+                    val parts = result.split("|")
+                    if (parts.size == 2) {
+                        tvResult.text = "ESPECIE CLASIFICADA: ${parts[0]}\n\nDescriptor de Fourier:\n${parts[1]}"
+                    } else {
+                        tvResult.text = "Error al clasificar."
+                    }
+                } else {
+                    tvResult.text = "No se detectó forma."
+                }
             }
         }
     }
@@ -89,9 +98,9 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * Llama al código C++ pasando los píxeles de la imagen dibujada.
-     * Retorna el número de la clase (0 a 6) o -1 si hubo un error.
+     * Retorna un String con el formato "clase|descriptor1, descriptor2..." o "-1" si hay error.
      */
-    external fun classifyImage(imageData: ByteArray, width: Int, height: Int): Int
+    external fun classifyImage(imageData: ByteArray, width: Int, height: Int): String
 
     companion object {
         init {
