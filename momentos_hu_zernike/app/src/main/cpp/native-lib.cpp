@@ -14,9 +14,7 @@ struct TrainingSample {
 
 std::vector<TrainingSample> trainingData;
 
-// ====================================================================
-// FUNCIÓN 1: Inicializar el clasificador con los datos de entrenamiento
-// ====================================================================
+// Inicializar el clasificador con los datos de entrenamiento
 extern "C" JNIEXPORT void JNICALL
 Java_com_example_momentos_1hu_1zernike_MainActivity_initClassifier(
         JNIEnv* env,
@@ -30,10 +28,8 @@ Java_com_example_momentos_1hu_1zernike_MainActivity_initClassifier(
     std::istringstream stream(dataStr);
     std::string line;
     
-    // Leer primera línea (header)
-    if (std::getline(stream, line)) {
-        // Podríamos leer la cantidad, pero no es estrictamente necesario
-    }
+    // Leer header (ignorarlo)
+    std::getline(stream, line);
 
     trainingData.clear();
 
@@ -108,9 +104,7 @@ std::vector<cv::Point2f> resampleContour(const std::vector<cv::Point>& contour, 
     return resampled;
 }
 
-// ====================================================================
-// FUNCIÓN 2: Clasificar la imagen dibujada
-// ====================================================================
+// Clasificar la imagen dibujada
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_example_momentos_1hu_1zernike_MainActivity_classifyImage(
         JNIEnv* env,
@@ -119,7 +113,7 @@ Java_com_example_momentos_1hu_1zernike_MainActivity_classifyImage(
         jint width,
         jint height) {
 
-    // 1. Obtener los bytes y convertirlos a un cv::Mat de 4 canales (RGBA)
+    // Convertir bytes a cv::Mat RGBA
     jbyte* bufferPtr = env->GetByteArrayElements(imageData, NULL);
     cv::Mat imgRGBA(height, width, CV_8UC4, (unsigned char*)bufferPtr);
     
@@ -129,11 +123,11 @@ Java_com_example_momentos_1hu_1zernike_MainActivity_classifyImage(
     
     env->ReleaseByteArrayElements(imageData, bufferPtr, 0);
 
-    // 2. Redimensionar a 256x256
+    // Redimensionar a 256x256
     cv::Mat resized;
     cv::resize(gray, resized, cv::Size(256, 256));
 
-    // 3. Preprocesamiento basico
+    // Preprocesamiento basico
     cv::Mat blurred, binary;
     cv::GaussianBlur(resized, blurred, cv::Size(5, 5), 0);
     
@@ -167,7 +161,7 @@ Java_com_example_momentos_1hu_1zernike_MainActivity_classifyImage(
     cv::Mat result;
     cv::bitwise_or(binary, filledInv, result);
 
-    // 4. Extraer contornos de la silueta rellena
+    // Extraer contornos
     std::vector<std::vector<cv::Point>> contours;
     cv::findContours(result, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_NONE);
 
@@ -191,11 +185,11 @@ Java_com_example_momentos_1hu_1zernike_MainActivity_classifyImage(
         return env->NewStringUTF("-1"); // Contorno demasiado pequeño
     }
 
-    // 5. Remuestreo del contorno a N puntos fijos
+    // Remuestreo del contorno a N puntos fijos
     const int N_POINTS = 128;
     std::vector<cv::Point2f> resampled = resampleContour(contour, N_POINTS);
 
-    // 6. Shape Signature (Coordenadas Complejas)
+    // Shape Signature (Coordenadas Complejas)
     // Calcular centroide del contorno remuestreado
     float cx = 0, cy = 0;
     for (const auto& pt : resampled) {
@@ -257,7 +251,7 @@ Java_com_example_momentos_1hu_1zernike_MainActivity_classifyImage(
         }
     }
 
-    // 7. Clasificar usando la Distancia Euclídea (1-NN)
+    // Clasificar usando Distancia Euclidea (1-NN)
     if (trainingData.empty()) return env->NewStringUTF("-1");
 
     int bestLabel = -1;
