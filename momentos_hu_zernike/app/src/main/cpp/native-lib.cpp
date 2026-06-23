@@ -115,16 +115,13 @@ Java_com_example_momentos_1hu_1zernike_MainActivity_classifyImage(
         return env->NewStringUTF("-1"); // Contorno demasiado pequeño
     }
 
-    // TÉCNICA DE MEJORA: Suavizado Poligonal (approxPolyDP)
-    // Reduce el ruido y temblor causado por el dedo humano al dibujar en la pantalla.
-    // Esto iguala la calidad del contorno dibujado con la calidad de las imágenes del dataset original.
-    std::vector<cv::Point> smoothContour;
-    double epsilon = 0.005 * cv::arcLength(contour, true);
-    cv::approxPolyDP(contour, smoothContour, epsilon, true);
+    // TÉCNICA DE MEJORA: Suavizado por Operaciones Morfológicas (ya aplicado arriba)
+    // NOTA: Se elimina approxPolyDP porque la Transformada Discreta de Fourier (FFT) 
+    // requiere que los puntos del contorno estén muestreados de forma uniforme (equidistantes).
+    // approxPolyDP elimina puntos en líneas rectas y agrupa puntos en las curvas, 
+    // lo cual destruye la señal en el dominio del tiempo/espacio y corrompe los descriptores.
     
-    if (smoothContour.size() < 10) {
-        smoothContour = contour; // Fallback si se simplifica demasiado
-    }
+    std::vector<cv::Point> smoothContour = contour;
 
     // 4. Calcular el Shape Signature usando Coordenadas Complejas (FFT)
     cv::Moments M = cv::moments(smoothContour);
