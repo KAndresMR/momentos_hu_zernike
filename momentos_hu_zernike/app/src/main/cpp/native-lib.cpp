@@ -57,6 +57,62 @@ Java_com_example_momentos_1hu_1zernike_MainActivity_initClassifier(
 }
 
 // ====================================================================
+// FUNCIÓN AUXILIAR: Remuestrear un contorno a exactamente N puntos
+// Esto es crítico para que la FFT genere descriptores comparables
+// entre el dataset (Python) y el dibujo manual (C++).
+// ====================================================================
+std::vector<cv::Point2f> resampleContour(const std::vector<cv::Point>& contour, int N) {
+    // Calcular la longitud total del perímetro
+    double totalLength = 0;
+    std::vector<double> segLengths(contour.size());
+    for (size_t i = 0; i < contour.size(); i++) {
+        int next = (i + 1) % contour.size();
+        double dx = contour[next].x - contour[i].x;
+        double dy = contour[next].y - contour[i].y;
+        segLengths[i] = std::sqrt(dx * dx + dy * dy);
+        totalLength += segLengths[i];
+    }
+
+    double step = totalLength / N;
+    std::vector<cv::Point2f> resampled;
+    resampled.push_back(cv::Point2f((float)contour[0].x, (float)contour[0].y));
+
+    double accumulated = 0;
+    double target = step;
+    size_t idx = 0;
+    double segProgress = 0; // cuánto hemos avanzado en el segmento actual
+
+    while ((int)resampled.size() < N && idx < contour.size()) {
+        double remaining = segLengths[idx] - segProgress;
+        double needed = target - accumulated;
+
+        if (remaining >= needed) {
+            // El punto cae en este segmento
+            double t = (segProgress + needed) / segLengths[idx];
+            int next = (idx + 1) % contour.size();
+            float px = (float)(contour[idx].x + t * (contour[next].x - contour[idx].x));
+            float py = (float)(contour[idx].y + t * (contour[next].y - contour[idx].y));
+            resampled.push_back(cv::Point2f(px, py));
+            segProgress += needed;
+            accumulated = 0;
+            target = step;
+        } else {
+            // Avanzar al siguiente segmento
+            accumulated += remaining;
+            segProgress = 0;
+            idx++;
+        }
+    }
+
+    // Asegurar exactamente N puntos
+    while ((int)resampled.size() < N) {
+        resampled.push_back(resampled.back());
+    }
+
+    return resampled;
+}
+
+// ====================================================================
 // FUNCIÓN 2: Clasificar la imagen dibujada
 // ====================================================================
 extern "C" JNIEXPORT jstring JNICALL
@@ -77,23 +133,48 @@ Java_com_example_momentos_1hu_1zernike_MainActivity_classifyImage(
     
     env->ReleaseByteArrayElements(imageData, bufferPtr, 0);
 
-    // 2. Preprocesamiento (igual que en Python)
+    // 2. Redimensionar a 256x256 (MISMO tamaño que el preprocesamiento en Python)
+    cv::Mat resized;
+    cv::resize(gray, resized, cv::Size(256, 256));
+
+    // 3. Preprocesamiento (idéntico al notebook de Python)
     cv::Mat blurred, binary;
-    cv::GaussianBlur(gray, blurred, cv::Size(5, 5), 0);
+    cv::GaussianBlur(resized, blurred, cv::Size(5, 5), 0);
     
-    // Usamos el umbral para detectar trazos negros sobre fondo blanco
+    // Binarización con umbral adaptativo
     cv::adaptiveThreshold(blurred, binary, 255, 
                           cv::ADAPTIVE_THRESH_GAUSSIAN_C, 
                           cv::THRESH_BINARY_INV, 25, 8);
                           
-    // Operaciones morfológicas para limpiar trazos
+    // Operaciones morfológicas para limpiar y RELLENAR la silueta
     cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(5, 5));
     cv::morphologyEx(binary, binary, cv::MORPH_CLOSE, kernel, cv::Point(-1,-1), 2);
     cv::morphologyEx(binary, binary, cv::MORPH_OPEN, kernel, cv::Point(-1,-1), 1);
 
-    // 3. Extraer contornos
+    // RELLENAR la silueta dibujada:
+    // El usuario dibuja un contorno con trazo grueso. Necesitamos rellenar el interior
+    // para que findContours extraiga la silueta sólida (como en las fotos del dataset).
+    // Usamos floodFill desde las esquinas para detectar el fondo, luego invertimos.
+    cv::Mat filled = binary.clone();
+    cv::Mat mask = cv::Mat::zeros(258, 258, CV_8UC1); // mask debe ser 2px más grande
+    
+    // Inundar desde las 4 esquinas (el fondo)
+    cv::floodFill(filled, mask, cv::Point(0, 0), cv::Scalar(255));
+    cv::floodFill(filled, mask, cv::Point(255, 0), cv::Scalar(255));
+    cv::floodFill(filled, mask, cv::Point(0, 255), cv::Scalar(255));
+    cv::floodFill(filled, mask, cv::Point(255, 255), cv::Scalar(255));
+    
+    // Invertir: lo que NO es fondo = hoja rellena
+    cv::Mat filledInv;
+    cv::bitwise_not(filled, filledInv);
+    
+    // Combinar con la imagen binaria original (unión)
+    cv::Mat result;
+    cv::bitwise_or(binary, filledInv, result);
+
+    // 4. Extraer contornos de la silueta rellena
     std::vector<std::vector<cv::Point>> contours;
-    cv::findContours(binary, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_NONE);
+    cv::findContours(result, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_NONE);
 
     if (contours.empty()) {
         return env->NewStringUTF("-1"); // No se dibujó nada
@@ -115,59 +196,58 @@ Java_com_example_momentos_1hu_1zernike_MainActivity_classifyImage(
         return env->NewStringUTF("-1"); // Contorno demasiado pequeño
     }
 
-    // TÉCNICA DE MEJORA: Suavizado por Operaciones Morfológicas (ya aplicado arriba)
-    // NOTA: Se elimina approxPolyDP porque la Transformada Discreta de Fourier (FFT) 
-    // requiere que los puntos del contorno estén muestreados de forma uniforme (equidistantes).
-    // approxPolyDP elimina puntos en líneas rectas y agrupa puntos en las curvas, 
-    // lo cual destruye la señal en el dominio del tiempo/espacio y corrompe los descriptores.
-    
-    std::vector<cv::Point> smoothContour = contour;
+    // 5. REMUESTREAR el contorno a exactamente 128 puntos
+    // Esto es CRÍTICO: la FFT debe operar sobre la misma cantidad de puntos
+    // que en el notebook de Python para que los descriptores sean comparables.
+    const int N_POINTS = 128;
+    std::vector<cv::Point2f> resampled = resampleContour(contour, N_POINTS);
 
-    // 4. Calcular el Shape Signature usando Coordenadas Complejas (FFT)
-    cv::Moments M = cv::moments(smoothContour);
-    if (M.m00 == 0) return env->NewStringUTF("-1");
-
-    double cx = M.m10 / M.m00;
-    double cy = M.m01 / M.m00;
+    // 6. Calcular el Shape Signature usando Coordenadas Complejas (FFT)
+    // Calcular centroide del contorno remuestreado
+    float cx = 0, cy = 0;
+    for (const auto& pt : resampled) {
+        cx += pt.x;
+        cy += pt.y;
+    }
+    cx /= N_POINTS;
+    cy /= N_POINTS;
 
     // Crear la señal compleja s(n) = (x(n) - cx) + j*(y(n) - cy)
-    // En OpenCV para dft, usamos una matriz de 2 canales (real, img)
-    cv::Mat complexSignal(smoothContour.size(), 1, CV_32FC2);
-    for (size_t i = 0; i < smoothContour.size(); i++) {
-        complexSignal.at<cv::Vec2f>(i, 0)[0] = (float)(smoothContour[i].x - cx); // Real
-        complexSignal.at<cv::Vec2f>(i, 0)[1] = (float)(smoothContour[i].y - cy); // Imag
+    cv::Mat complexSignal(N_POINTS, 1, CV_32FC2);
+    for (int i = 0; i < N_POINTS; i++) {
+        complexSignal.at<cv::Vec2f>(i, 0)[0] = resampled[i].x - cx; // Real
+        complexSignal.at<cv::Vec2f>(i, 0)[1] = resampled[i].y - cy; // Imag
     }
 
     // Aplicar FFT 1D
     cv::Mat dftResult;
     cv::dft(complexSignal, dftResult, cv::DFT_COMPLEX_OUTPUT);
 
-    // Calcular magnitud
+    // Calcular magnitud (descartar fase = invarianza a rotación)
     std::vector<cv::Mat> planes;
     cv::split(dftResult, planes);
     cv::Mat magnitude;
     cv::magnitude(planes[0], planes[1], magnitude);
 
     // Extraer las magnitudes en un vector
-    std::vector<float> F_mag(smoothContour.size());
-    for (size_t i = 0; i < smoothContour.size(); i++) {
+    std::vector<float> F_mag(N_POINTS);
+    for (int i = 0; i < N_POINTS; i++) {
         F_mag[i] = magnitude.at<float>(i, 0);
     }
 
-    // Identificar el armónico fundamental |F(1)| o |F(-1)| 
-    // (F[-1] es F_mag[smoothContour.size() - 1])
+    // Normalizar por el primer armónico |F(1)| para invarianza a escala
     float f1 = F_mag[1];
-    float f_minus1 = F_mag[smoothContour.size() - 1];
+    float f_minus1 = F_mag[N_POINTS - 1];
     float fundamental = std::max(f1, f_minus1);
 
     if (fundamental < 1e-6) return env->NewStringUTF("-1");
 
-    // Tomar 12 componentes normalizados
+    // Tomar 12 componentes normalizados (descartando DC y fundamental)
     std::vector<float> descriptor;
     int n_components = 12;
     if (f1 >= f_minus1) {
         for (int i = 2; i < 2 + n_components; i++) {
-            if (i < F_mag.size()) {
+            if (i < N_POINTS) {
                 descriptor.push_back(F_mag[i] / fundamental);
             } else {
                 descriptor.push_back(0.0f);
@@ -175,7 +255,7 @@ Java_com_example_momentos_1hu_1zernike_MainActivity_classifyImage(
         }
     } else {
         for (int i = 2; i < 2 + n_components; i++) {
-            int idx = smoothContour.size() - i;
+            int idx = N_POINTS - i;
             if (idx >= 0) {
                 descriptor.push_back(F_mag[idx] / fundamental);
             } else {
@@ -184,7 +264,7 @@ Java_com_example_momentos_1hu_1zernike_MainActivity_classifyImage(
         }
     }
 
-    // 5. Clasificar usando la Distancia Euclídea (1-NN)
+    // 7. Clasificar usando la Distancia Euclídea (1-NN)
     if (trainingData.empty()) return env->NewStringUTF("-1");
 
     int bestLabel = -1;
@@ -204,6 +284,7 @@ Java_com_example_momentos_1hu_1zernike_MainActivity_classifyImage(
         }
     }
 
+    // Construir la cadena de resultado: "clase|desc1, desc2, desc3, desc4, ..."
     std::ostringstream resultStr;
     if (bestLabel == -1) {
         resultStr << "-1";

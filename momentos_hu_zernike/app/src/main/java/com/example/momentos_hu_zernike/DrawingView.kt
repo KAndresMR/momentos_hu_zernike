@@ -25,7 +25,7 @@ class DrawingView(context: Context, attrs: AttributeSet?) : View(context, attrs)
     private fun setupDrawing() {
         drawPaint.color = Color.BLACK
         drawPaint.isAntiAlias = true
-        drawPaint.strokeWidth = 15f
+        drawPaint.strokeWidth = 25f
         drawPaint.style = Paint.Style.STROKE
         drawPaint.strokeJoin = Paint.Join.ROUND
         drawPaint.strokeCap = Paint.Cap.ROUND
