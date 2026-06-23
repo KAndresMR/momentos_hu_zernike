@@ -56,11 +56,7 @@ Java_com_example_momentos_1hu_1zernike_MainActivity_initClassifier(
     }
 }
 
-// ====================================================================
-// FUNCIÓN AUXILIAR: Remuestrear un contorno a exactamente N puntos
-// Esto es crítico para que la FFT genere descriptores comparables
-// entre el dataset (Python) y el dibujo manual (C++).
-// ====================================================================
+// Remuestreo del contorno a N puntos equidistantes
 std::vector<cv::Point2f> resampleContour(const std::vector<cv::Point>& contour, int N) {
     // Calcular la longitud total del perímetro
     double totalLength = 0;
@@ -133,11 +129,11 @@ Java_com_example_momentos_1hu_1zernike_MainActivity_classifyImage(
     
     env->ReleaseByteArrayElements(imageData, bufferPtr, 0);
 
-    // 2. Redimensionar a 256x256 (MISMO tamaño que el preprocesamiento en Python)
+    // 2. Redimensionar a 256x256
     cv::Mat resized;
     cv::resize(gray, resized, cv::Size(256, 256));
 
-    // 3. Preprocesamiento (idéntico al notebook de Python)
+    // 3. Preprocesamiento basico
     cv::Mat blurred, binary;
     cv::GaussianBlur(resized, blurred, cv::Size(5, 5), 0);
     
@@ -146,18 +142,14 @@ Java_com_example_momentos_1hu_1zernike_MainActivity_classifyImage(
                           cv::ADAPTIVE_THRESH_GAUSSIAN_C, 
                           cv::THRESH_BINARY_INV, 25, 8);
                           
-    // Operaciones morfológicas para limpiar y RELLENAR la silueta
-    // USAMOS UN KERNEL MÁS GRANDE (15x15) PARA CERRAR LAS ROTURAS DEL BORDE
+    // Cierre morfologico para limpiar el borde
     cv::Mat kernelClose = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(15, 15));
     cv::morphologyEx(binary, binary, cv::MORPH_CLOSE, kernelClose, cv::Point(-1,-1), 2);
     
     cv::Mat kernelOpen = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(5, 5));
     cv::morphologyEx(binary, binary, cv::MORPH_OPEN, kernelOpen, cv::Point(-1,-1), 1);
 
-    // RELLENAR la silueta dibujada:
-    // El usuario dibuja un contorno con trazo grueso. Necesitamos rellenar el interior
-    // para que findContours extraiga la silueta sólida (como en las fotos del dataset).
-    // Usamos floodFill desde las esquinas para detectar el fondo, luego invertimos.
+    // Rellenar el interior del contorno dibujado usando floodFill
     cv::Mat filled = binary.clone();
     cv::Mat mask = cv::Mat::zeros(258, 258, CV_8UC1); // mask debe ser 2px más grande
     
@@ -167,7 +159,7 @@ Java_com_example_momentos_1hu_1zernike_MainActivity_classifyImage(
     cv::floodFill(filled, mask, cv::Point(0, 255), cv::Scalar(255));
     cv::floodFill(filled, mask, cv::Point(255, 255), cv::Scalar(255));
     
-    // Invertir: lo que NO es fondo = hoja rellena
+    // Invertir mascara
     cv::Mat filledInv;
     cv::bitwise_not(filled, filledInv);
     
@@ -199,13 +191,11 @@ Java_com_example_momentos_1hu_1zernike_MainActivity_classifyImage(
         return env->NewStringUTF("-1"); // Contorno demasiado pequeño
     }
 
-    // 5. REMUESTREAR el contorno a exactamente 128 puntos
-    // Esto es CRÍTICO: la FFT debe operar sobre la misma cantidad de puntos
-    // que en el notebook de Python para que los descriptores sean comparables.
+    // 5. Remuestreo del contorno a N puntos fijos
     const int N_POINTS = 128;
     std::vector<cv::Point2f> resampled = resampleContour(contour, N_POINTS);
 
-    // 6. Calcular el Shape Signature usando Coordenadas Complejas (FFT)
+    // 6. Shape Signature (Coordenadas Complejas)
     // Calcular centroide del contorno remuestreado
     float cx = 0, cy = 0;
     for (const auto& pt : resampled) {
@@ -226,7 +216,7 @@ Java_com_example_momentos_1hu_1zernike_MainActivity_classifyImage(
     cv::Mat dftResult;
     cv::dft(complexSignal, dftResult, cv::DFT_COMPLEX_OUTPUT);
 
-    // Calcular magnitud (descartar fase = invarianza a rotación)
+    // Calcular magnitud
     std::vector<cv::Mat> planes;
     cv::split(dftResult, planes);
     cv::Mat magnitude;
@@ -238,7 +228,7 @@ Java_com_example_momentos_1hu_1zernike_MainActivity_classifyImage(
         F_mag[i] = magnitude.at<float>(i, 0);
     }
 
-    // Normalizar por el primer armónico |F(1)| para invarianza a escala
+    // Normalizar por F(1)
     float f1 = F_mag[1];
     float f_minus1 = F_mag[N_POINTS - 1];
     float fundamental = std::max(f1, f_minus1);
