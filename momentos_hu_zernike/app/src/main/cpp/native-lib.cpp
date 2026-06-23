@@ -147,9 +147,12 @@ Java_com_example_momentos_1hu_1zernike_MainActivity_classifyImage(
                           cv::THRESH_BINARY_INV, 25, 8);
                           
     // Operaciones morfológicas para limpiar y RELLENAR la silueta
-    cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(5, 5));
-    cv::morphologyEx(binary, binary, cv::MORPH_CLOSE, kernel, cv::Point(-1,-1), 2);
-    cv::morphologyEx(binary, binary, cv::MORPH_OPEN, kernel, cv::Point(-1,-1), 1);
+    // USAMOS UN KERNEL MÁS GRANDE (15x15) PARA CERRAR LAS ROTURAS DEL BORDE
+    cv::Mat kernelClose = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(15, 15));
+    cv::morphologyEx(binary, binary, cv::MORPH_CLOSE, kernelClose, cv::Point(-1,-1), 2);
+    
+    cv::Mat kernelOpen = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(5, 5));
+    cv::morphologyEx(binary, binary, cv::MORPH_OPEN, kernelOpen, cv::Point(-1,-1), 1);
 
     // RELLENAR la silueta dibujada:
     // El usuario dibuja un contorno con trazo grueso. Necesitamos rellenar el interior
