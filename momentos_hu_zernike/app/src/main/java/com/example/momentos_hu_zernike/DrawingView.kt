@@ -33,7 +33,7 @@ class DrawingView(context: Context, attrs: AttributeSet?) : View(context, attrs)
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        // Creamos un bitmap con fondo blanco
+        // Bitmap con fondo blanco
         canvasBitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         drawCanvas = Canvas(canvasBitmap!!)
         drawCanvas?.drawColor(Color.WHITE)
@@ -68,7 +68,7 @@ class DrawingView(context: Context, attrs: AttributeSet?) : View(context, attrs)
         invalidate()
     }
 
-    // Devuelve la imagen dibujada para ser enviada a OpenCV
+    // Obtener imagen dibujada
     fun getBitmap(): Bitmap? {
         return canvasBitmap
     }

@@ -26,22 +26,22 @@ class MainActivity : AppCompatActivity() {
         val btnOpenDrawer = findViewById<TextView>(R.id.btnOpenDrawer)
         val drawerLayout = findViewById<DrawerLayout>(R.id.drawerLayout)
 
-        // Bloquear el gesto de deslizar para que el DrawerLayout no pelee con la navegación del sistema
+        // Bloquear DrawerLayout
         drawerLayout.setDrawerLockMode(DrawerLayout.LOCK_MODE_LOCKED_CLOSED)
 
         btnOpenDrawer.setOnClickListener {
             drawerLayout.openDrawer(GravityCompat.START)
         }
 
-        // Interceptar el gesto de "Atrás" (deslizar desde el borde) para evitar que la app se cierre por error
+        // Controlar el boton de retroceso
         var backPressedTime: Long = 0
         onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
-                    // Si el panel está abierto, el gesto Atrás lo cierra
+                    // Cerrar el panel si esta abierto
                     drawerLayout.closeDrawer(GravityCompat.START)
                 } else {
-                    // Si está cerrado, aplicamos "Doble Atrás para Salir"
+                    // Doble tap para salir
                     if (backPressedTime + 2000 > System.currentTimeMillis()) {
                         isEnabled = false
                         onBackPressedDispatcher.onBackPressed()
@@ -53,7 +53,7 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
-        // Cargar los descriptores de entrenamiento y enviarlos a C++
+        // Cargar descriptores
         val descriptorsText = resources.openRawResource(R.raw.descriptors_train).bufferedReader().use { it.readText() }
         initClassifier(descriptorsText)
 
@@ -65,7 +65,7 @@ class MainActivity : AppCompatActivity() {
         btnClassify.setOnClickListener {
             val bitmap = drawingView.getBitmap()
             if (bitmap != null) {
-                // Obtenemos los pixeles de la imagen (Bitmap a un arreglo de bytes)
+                // Obtener pixeles
                 val width = bitmap.width
                 val height = bitmap.height
                 
@@ -74,7 +74,7 @@ class MainActivity : AppCompatActivity() {
                 bitmap.copyPixelsToBuffer(byteBuffer)
                 val byteArray = byteBuffer.array()
 
-                // Llamamos a la función nativa en C++ y recibimos el resultado concatenado
+                // Llamar funcion nativa C++
                 val result = classifyImage(byteArray, width, height)
                 
                 if (result != "-1") {
